@@ -1,0 +1,92 @@
+#!/usr/bin/env node
+const { promisify } = require('util');
+const { spawn } = require('child_process');
+const config = require('../.aws/config.json');
+
+function getConfigMissingKeys(config, keys) {
+    return keys.filter(key => !config.hasOwnProperty(key));
+} 
+async function main() {
+    let missingKeys = getConfigMissingKeys(config, [
+        "awsAccessKeyId",
+        "awsSecretAccessKey",
+        "awsDefaultRegion",
+    ]);
+    if(missingKeys.length > 0) {
+        console.error(`config missing: ${missingKeys.join(', ')}`);
+        process.exit(0x7f);
+        return;
+    }
+    const {
+        awsAccessKeyId,
+        awsSecretAccessKey,
+        awsDefaultRegion,
+    } = config;
+    const stage = process.argv[2] || "Staging";
+    if(!config[stage]) {
+        console.error(`undefined stage: ${stage}`);
+        process.exit(0x7f);
+        return;
+    }
+    missingKeys = getConfigMissingKeys(config[stage], [
+        'S3Bucket',
+        'cognitoUserPool',
+        'stackName',
+    ]);
+    if(missingKeys.length > 0) {
+        console.error(`config for ${stage} missing: ${missingKeys.join(', ')}`);
+        process.exit(0x7f);
+        return;
+    }
+    const {
+        S3Bucket,
+        cognitoUserPool,
+        stackName,
+    } = config[stage];
+    await new Promise((resolve, reject) => {
+        const p = spawn('bash',
+            [
+                '-c',
+                'cd dist && '
+                + 'sam package --template-file ../template.yaml '
+                    + `--s3-bucket '${S3Bucket}' `
+                    + '--output-template-file template.packaged.yaml '
+                    + "&& "
+                + 'sam deploy '
+                    + '--template-file template.packaged.yaml '
+                    + `--stack-name '${stackName}' `
+                    + '--capabilities CAPABILITY_IAM '
+                    + '--parameter-overrides '
+                        + `'StageName=${stage}' `
+                        + `'CognitoUserPool=${cognitoUserPool}' `
+                    + "&& "
+                + 'echo done',
+            ],
+            {
+                env: {
+                    AWS_ACCESS_KEY_ID: awsAccessKeyId,
+                    AWS_SECRET_ACCESS_KEY: awsSecretAccessKey,
+                    AWS_DEFAULT_REGION: awsDefaultRegion,
+                    ...process.env,
+                },
+                stdio: [
+                    'inherit',
+                    'inherit',
+                    'inherit',
+                ],
+            },
+            (err) => {
+                if(err) {
+                    reject(err);
+                    return;
+                }
+                resolve();
+            }
+        );
+    });
+}
+
+main().catch((err) => {
+    console.error(err.message);
+    console.error("fail to deploy");
+});

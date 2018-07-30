@@ -1,0 +1,71 @@
+#!/usr/bin/env node
+const { promisify } = require('util');
+const { spawn } = require('child_process');
+
+const runTests = {
+    unit: async () => {
+        await new Promise((resolve, reject) => {
+            const p = spawn('bash',
+                [
+                    '-c',
+                    'npx ts-mocha --colors `find src/ -name \'*.test.ts\'`',
+                ],
+                {
+                    env: {
+                        'KENMYO_ENV': 'TEST:UNIT',
+                    },
+                    stdio: [
+                        'inherit',
+                        'inherit',
+                        'inherit',
+                    ],
+                },
+                (err) => {
+                    if(err) {
+                        reject(err);
+                        return;
+                    }
+                    resolve();
+                }
+            );
+        });
+    },
+    integrate: async () => {
+        await new Promise((resolve, reject) => {
+            const p = spawn('bash',
+                [
+                    '-c',
+                    'npx ts-mocha --colors `find test/ -name \'*.test.ts\'`',
+                ],
+                {
+                    stdio: [
+                        'inherit',
+                        'inherit',
+                        'inherit',
+                    ],
+                },
+                (err) => {
+                    if(err) {
+                        reject(err);
+                        return;
+                    }
+                    resolve();
+                }
+            );
+        });
+    },
+};
+
+async function main() {
+    const testType = process.argv[2] || "unit";
+    const runTest = runTests[testType];
+    if(!runTest) {
+        console.error(`undefined test type: ${testType}`);
+        process.exit(0x7f);
+    }
+    await runTest();
+}
+
+main().catch((err) => {
+    console.error(err.message);
+});
