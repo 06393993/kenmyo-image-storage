@@ -20,13 +20,15 @@ This project relies on following techniques:
 
 ## Progress
 
-- [ ] set up the infrastructure by using the CloudFormation
-  - [ ] create the api gateway that requires IAM authorization
-  - [ ] create the dynamodb table
-  - [ ] create the S3 bucket
-  - [ ] create the two policies: CanAdd and FullReadAccess and pass them as the environment variables to the front router lambda
-  - [ ] create the front router lambda that triggered by the api gateway
-  - [ ] create the image publisher lambda that triggered by the dynamodb stream
+- [x] set up the infrastructure by using the CloudFormation
+  - [x] create the api gateway that requires IAM authorization
+  - [x] create the dynamodb table and pass the arn of the table as the environment variables to the front router lambda
+  - [x] set up dynamodb read and write authorization to the front router lambda
+  - [x] create the S3 bucket
+  - [x] set up S3 read and write authorization to the front router lambda
+  - [x] create the two policies: CanAdd and FullReadAccess and pass them as the environment variables to the front router lambda
+  - [x] create the front router lambda that triggered by the api gateway
+  - [x] create the image publisher lambda that triggered by the dynamodb stream
 - [ ] set up local development environment by using localstack, and add localstack to the previous list
 - [ ] implement the `add` function with authorization
 - [ ] implement the `get` operation with authorization

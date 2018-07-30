@@ -1,11 +1,10 @@
 AWSTemplateFormatVersion: 2010-09-09
 Transform: AWS::Serverless-2016-10-31
 Description: >
-    kenmyo-application-server
+    kenmyo-image-storage
 
-    Application server for kenmyo, used as an edge server to
-    authenticate users and forwarding request to corresponding
-    services
+    Image Storage service for kenmyo, used as an internal 
+    service to store and serve images and meta data.
 
 Parameters:
     StageName:
@@ -13,7 +12,7 @@ Parameters:
         AllowedValues:
             - Prod
             - Staging
-    CognitoUserPool:
+    ImageCreatedTopicArn:
         Type: String
 
 Globals:
@@ -23,61 +22,23 @@ Globals:
 
 Resources:
 
-    AppServerApi:
+    ImageStorageApi:
         Type: AWS::Serverless::Api
         Properties:
             StageName: !Ref StageName
             DefinitionBody:
                 swagger: 2.0
                 info:
-                    title: Kenmyo Application Server
+                    title: Kenmyo Image Storage
                 schemes:
                     - https
-                securityDefinitions:
-                    Cognito:
-                        type: apiKey
-                        name: x-kenmyo-user-id
-                        in: header
-                        x-amazon-apigateway-authtype: COGNITO_USER_POOLS
-                        x-amazon-apigateway-authorizer:
-                            type: COGNITO_USER_POOLS
-                            providerARNs:
-                                - !Ref CognitoUserPool
                 paths:
-                    /kenmyo.json:
-                        options:
-                            responses:
-                                "200":
-                                    headers:
-                                        Access-Control-Allow-Headers:
-                                            type: string
-                                        Access-Control-Allow-Methods:
-                                            type: string
-                                        Access-Control-Allow-Origin:
-                                            type: string
-                            summary: CORS support
-                            x-amazon-apigateway-integration:
-                                type: mock
-                                requestTemplates:
-                                    application/json: |
-                                        {
-                                            "statusCode": 200
-                                        }
-                                responses:
-                                    "default":
-                                        statusCode: "200"
-                                        responseParameters:
-                                            method.response.header.Access-Control-Allow-Headers: "'Content-Type,x-kenmyo-user-id'"
-                                            method.response.header.Access-Control-Allow-Methods: "'*'"
-                                            method.response.header.Access-Control-Allow-Origin: "'*'"
-                                        responseTemplates:
-                                            application/json: |
-                                                {}
+                    /images.json:
                         get:
                             responses:
                                 "200": {}
-                            security:
-                                - Cognito: []
+                            x-amazon-apigateway-auth:
+                                type: aws_iam
                             x-amazon-apigateway-integration:
                                 type: aws_proxy
                                 httpMethod: POST
@@ -86,34 +47,166 @@ Resources:
                                     - - 'arn:aws:apigateway:'
                                       - !Ref AWS::Region
                                       - ':lambda:path/2015-03-31/functions/'
-                                      - !GetAtt AppServerFunction.Arn
+                                      - !GetAtt ImageStorageFrontRouterFunction.Arn
                                       - /invocations
-    AppServerFunction:
+
+    ImageCreatedPublisherFunction:
         Type: AWS::Serverless::Function
         Properties:
             CodeUri: dist/
-            Handler: app.handler
+            Handler: app.imageCreatedPublisher
             Environment:
                 Variables:
                     KENMYO_ENV: !Ref StageName
+                    IMAGE_CREATED_TOPIC_ARN: !Ref ImageCreatedTopicArn
+            Policies:
+                Version: 2012-10-17
+                Statement:
+                    - Action:
+                        - sns:Publish
+                      Effect: Allow
+                      Resource: !Ref ImageCreatedTopicArn
             Events:
-                AppServer:
+                ImagesMetaTableStream:
+                    Type: DynamoDB
+                    Properties:
+                        Stream: !GetAtt ImagesMetaTable.StreamArn
+                        StartingPosition: TRIM_HORIZON
+
+    ImageStorageFrontRouterFunction:
+        Type: AWS::Serverless::Function
+        Properties:
+            CodeUri: dist/
+            Handler: app.frontRouter
+            Environment:
+                Variables:
+                    KENMYO_ENV: !Ref StageName
+                    IMAGES_META_TABLE_ARN: !GetAtt ImagesMetaTable.Arn
+                    IMAGES_META_TABLE_NAME: !Ref ImagesMetaTable
+                    IMAGES_S3_BUCKET_NAME: !Ref ImagesS3Bucket
+                    FULL_READ_POLICY_ARN: !Ref ImageStorageFullReadPolicy
+                    CAN_ADD_POLICY_ARN: !Ref ImageStorageCanAddPolicy
+            Policies:
+                Version: 2012-10-17
+                Statement:
+                    - Action:
+                        - 'dynamodb:*'
+                      Effect: Allow
+                      Resource: !GetAtt ImagesMetaTable.Arn
+                    - Action:
+                        - 's3:*'
+                      Effect: Allow
+                      Resource: !GetAtt ImagesS3Bucket.Arn
+                    - Action:
+                        - 's3:*'
+                      Effect: Allow
+                      Resource: !Join
+                        - ''
+                        - - !GetAtt ImagesS3Bucket.Arn
+                          - '/*'
+                    - Action:
+                        - s3:ListAllMyBuckets
+                      Effect: Allow
+                      Resource: 'arn:aws:s3:::*'
+
+            Events:
+                ImageStorageApi:
                     Type: Api
                     Properties:
-                        Path: /kenmyo.json
+                        Path: /images.json
                         Method: get
-                        RestApiId: !Ref AppServerApi
+                        RestApiId: !Ref ImageStorageApi
+
+    ImageStorageApiCanInvokePolicy:
+        Type: AWS::IAM::ManagedPolicy
+        Properties:
+            PolicyDocument:
+                Version: 2012-10-17
+                Statement:
+                    - Effect: Allow
+                      Action: execute-api:Invoke
+                      Resource:
+                          - !Join
+                            - ''
+                            - - "arn:aws:execute-api:"
+                              - !Ref AWS::Region
+                              - ":"
+                              - !Ref AWS::AccountId
+                              - ":"
+                              - !Ref ImageStorageApi
+                              - /*/*/images.json
+
+    ImagesMetaTable:
+        Type: AWS::DynamoDB::Table
+        Properties:
+            AttributeDefinitions:
+                - AttributeName: id
+                  AttributeType: S
+            KeySchema:
+                - AttributeName: id
+                  KeyType: HASH
+            ProvisionedThroughput:
+                ReadCapacityUnits: 5
+                WriteCapacityUnits: 5
+            StreamSpecification:
+                StreamViewType: KEYS_ONLY
+
+    ImagesS3Bucket:
+        Type: AWS::S3::Bucket
+        DeletionPolicy: Delete
+
+    ImageStorageFullReadPolicy:
+        Type: AWS::IAM::ManagedPolicy
+        Properties:
+            PolicyDocument:
+              Version: 2012-10-17
+              Statement:
+                  - Effect: Deny
+                    Action:
+                        - '*'
+                    Resource:
+                        - '*'
+                    Condition:
+                        DateEquals:
+                            aws:CurrentTime: '1971-01-01T00:00:00Z'
+
+    ImageStorageCanAddPolicy:
+        Type: AWS::IAM::ManagedPolicy
+        Properties:
+            PolicyDocument:
+              Version: 2012-10-17
+              Statement:
+                  - Effect: Deny
+                    Action:
+                        - '*'
+                    Resource:
+                        - '*'
+                    Condition:
+                        DateEquals:
+                            aws:CurrentTime: '1971-01-01T00:00:00Z'
 
 Outputs:
 
-    AppServerApi:
-        Description: "API Gateway endpoint URL for Application Server"
-        Value: !Sub "https://${AppServerApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/kenmyo.json"
+    ImageStorageApiEndpoint:
+        Description: "API Gateway endpoint URL for Image Storage"
+        Value: !Sub "https://${ImageStorageApi}.execute-api.${AWS::Region}.amazonaws.com/${StageName}/images.json"
 
-    AppServerFunction:
-        Description: "Application Server Lambda Function ARN"
-        Value: !GetAtt AppServerFunction.Arn
+    ImageStorageFrontRouterFunction:
+        Description: "Image Storage front router lambda function ARN"
+        Value: !GetAtt ImageStorageFrontRouterFunction.Arn
 
-    AppServerFunctionIamRole:
-        Description: "Implicit IAM Role created for Application Server function"
-        Value: !GetAtt AppServerFunctionRole.Arn
+    ImageStorageFrontRouterFunctionIamRole:
+        Description: "Implicit IAM Role created for Image Storage front router function"
+        Value: !GetAtt ImageStorageFrontRouterFunctionRole.Arn
+
+    ImageStorageApiCanInvokePolicy:
+        Description: "The policy that allows the identity to call the Image Storage API"
+        Value: !Ref ImageStorageApiCanInvokePolicy
+
+    ImageStorageFullReadPolicy:
+        Description: "The policy that allows the identity to bypass the user id authorization when doing get operation the /image.json document"
+        Value: !Ref ImageStorageFullReadPolicy
+
+    ImageStorageCanAddPolicy:
+        Description: "The policy that allows the identity to call add function on the /image.json document"
+        Value: !Ref ImageStorageCanAddPolicy

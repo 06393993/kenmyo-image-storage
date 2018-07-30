@@ -29,8 +29,9 @@ async function main() {
         return;
     }
     missingKeys = getConfigMissingKeys(config[stage], [
+        'imageCreatedTopicArn',
+
         'S3Bucket',
-        'cognitoUserPool',
         'stackName',
     ]);
     if(missingKeys.length > 0) {
@@ -39,8 +40,9 @@ async function main() {
         return;
     }
     const {
+        imageCreatedTopicArn,
+
         S3Bucket,
-        cognitoUserPool,
         stackName,
     } = config[stage];
     await new Promise((resolve, reject) => {
@@ -58,7 +60,7 @@ async function main() {
                     + '--capabilities CAPABILITY_IAM '
                     + '--parameter-overrides '
                         + `'StageName=${stage}' `
-                        + `'CognitoUserPool=${cognitoUserPool}' `
+                        + `'ImageCreatedTopicArn=${imageCreatedTopicArn}' `
                     + "&& "
                 + 'echo done',
             ],
