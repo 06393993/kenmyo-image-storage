@@ -15,7 +15,20 @@ const docClient = new AWS.DynamoDB.DocumentClient();
 const s3 = new AWS.S3();
 const sns = new AWS.SNS();
 
-export const frontRouter: Handler<APIGatewayProxyEvent, APIGatewayProxyResult> =
+function asyncHandlerWrpper<E, R>(h: Handler<E, R>): Handler<E, R> {
+    return (event: E, context: Context, callback: Callback<R>) => {
+        const res = h(event, context, callback);
+        if (res) {
+            res.then((result) => callback(null, result), (error) => {
+                // tslint:disable-next-line
+                console.log("an error occured");
+                callback(error);
+            });
+        }
+    };
+}
+
+const frontRouter: Handler<APIGatewayProxyEvent, APIGatewayProxyResult> = asyncHandlerWrpper(
     async (
         event: APIGatewayProxyEvent,
         context: Context,
@@ -49,9 +62,10 @@ export const frontRouter: Handler<APIGatewayProxyEvent, APIGatewayProxyResult> =
             }),
             statusCode: 200,
         };
-    };
+    },
+);
 
-export const imageCreatedPublisher: Handler<APIGatewayProxyEvent, APIGatewayProxyResult> =
+const imageCreatedPublisher: Handler<APIGatewayProxyEvent, APIGatewayProxyResult> =
     async (
         event: APIGatewayProxyEvent,
         context: Context,
@@ -70,3 +84,8 @@ export const imageCreatedPublisher: Handler<APIGatewayProxyEvent, APIGatewayProx
             statusCode: 200,
         };
     };
+
+export {
+    imageCreatedPublisher,
+    frontRouter,
+};

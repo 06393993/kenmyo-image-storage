@@ -9,6 +9,7 @@ This project relies on following techniques:
 * [Typescript](https://www.typescriptlang.org/) for static type safety
 * [mocha](https://mochajs.org/) and [should](https://shouldjs.github.io/) for running tests and assertion
 * [tslint](https://palantir.github.io/tslint/) for code lint
+* [localstack](https://github.com/localstack/localstack) for providing AWS mock services locally for testing
 * [AWS Lambda](https://docs.aws.amazon.com/lambda/latest/dg/welcome.html) for serving the service
 * [AWS Api Gateway](https://docs.aws.amazon.com/apigateway/latest/developerguide/welcome.html) for dispatching requests and authentication
 * [AWS IAM](https://docs.aws.amazon.com/IAM/latest/UserGuide/introduction.html) for authentication across internal systems and authorization control
@@ -29,7 +30,7 @@ This project relies on following techniques:
   - [x] create the two policies: CanAdd and FullReadAccess and pass them as the environment variables to the front router lambda
   - [x] create the front router lambda that triggered by the api gateway
   - [x] create the image publisher lambda that triggered by the dynamodb stream
-- [ ] set up local development environment by using localstack, and add localstack to the previous list
+- [x] set up local development environment by using localstack, and add localstack to the previous list
 - [ ] implement the `add` function with authorization
 - [ ] implement the `get` operation with authorization
 
